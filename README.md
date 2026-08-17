@@ -20,8 +20,10 @@ It complements the official `dsh-llm-retry` (exponential backoff after failure):
 Install from npm:
 
 ```shell
-dsh plugin --profile web add @Xidong-AI/dsh-rate-limiter
+dsh plugin --profile web add @xidong-ai/dsh-rate-limiter
 ```
+
+> npm registry URLs are case-sensitive; use the lowercase package name.
 
 Or install directly from GitHub:
 
