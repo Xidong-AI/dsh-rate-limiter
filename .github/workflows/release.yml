@@ -1,0 +1,58 @@
+name: publish
+
+# 打 v* 标签时自动构建并发布到 npm（tag 为版本唯一来源）。
+# 鉴权使用 npm Trusted Publishing（OIDC），无需 NPM_TOKEN：
+# 1. 先手动发布首个版本（npm publish --access public）
+# 2. 在 npmjs.com 该包页面配置 Trusted Publisher：
+#    Provider: GitHub Actions，Repository: Xidong-AI/dsh-rate-limiter，
+#    Workflow: release.yml，Environment: 留空
+# 3. 仓库必须公开；Node >= 22.14 自带 npm >= 11.5.1 以支持 provenance。
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+  id-token: write # OIDC / trusted publishing 必需
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      # 校验 tag 与 package.json 版本一致，防止错发
+      - name: 校验 tag 与 package.json 版本一致
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          VERSION="${TAG#v}"
+          PACKAGE_VERSION="$(node -p "require('./package.json').version")"
+          if [ "$VERSION" != "$PACKAGE_VERSION" ]; then
+            echo "::error::标签 $TAG 与 package.json 版本 $PACKAGE_VERSION 不一致；请先运行 npm version <版本> 并推送对应标签"
+            exit 1
+          fi
+
+      - run: npm ci
+
+      - name: 类型检查
+        run: npm run typecheck
+
+      - name: 单元测试
+        run: npm test
+
+      - name: 构建
+        run: npm run build
+
+      - name: 检查发布内容
+        run: npm pack --dry-run
+
+      # trusted publishing 下不设置 registry-url，也不设置 NODE_AUTH_TOKEN
+      - name: 发布到 npm
+        run: npm publish --provenance --access public
