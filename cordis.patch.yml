@@ -5,6 +5,15 @@
 #     nvidia:
 #       rate: 2
 #       burst: 5
+#
+# dsh-rate-limiter bundle layer: registers the plugin entry on install.
+# By default it only enables the plugin and rate-limits no provider (zero
+# intrusion); add per-provider config in the profile patch layer or under
+# `providers` below, e.g.:
+#   providers:
+#     nvidia:
+#       rate: 2
+#       burst: 5
 - insert:
     - id: rate-limiter
       name: dsh-rate-limiter

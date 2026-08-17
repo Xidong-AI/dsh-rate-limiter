@@ -1,16 +1,27 @@
 # dsh-rate-limiter
 
-DeepSeek Harness（`dsh`）的**主动限速**插件：在模型请求发出**之前**按 provider 控制请求速率（令牌桶），超限时**延迟排队**而不是失败，从而避免触发上游 429。
+> [English](README.md) | [中文](README.zh.md)
 
-与官方 `dsh-llm-retry`（失败后指数退避）互补：限速在前（预防），退避在后（兜底），互不干扰。
+A **proactive rate limiter** plugin for DeepSeek Harness (`dsh`): it controls the request rate **per provider** (token bucket) **before** model requests are issued, and **queues the request with a delay** instead of failing when the limit is exceeded — avoiding upstream 429s.
 
-## 安装
+It complements the official `dsh-llm-retry` (exponential backoff after failure): rate limiting comes first (prevention), backoff comes last (safety net); the two do not interfere with each other.
+
+## Features
+
+- Per-provider token bucket, enforced **before** the request is sent (proactive prevention)
+- Over-limit requests are queued with a delay instead of rejected (no 429s, no lost requests)
+- Unconfigured providers pass through untouched (zero intrusion)
+- Queued waits honor the abort signal: stopping the user interrupts the wait immediately
+- Hand-written reservation-based token bucket (concurrency-safe), zero third-party rate-limiting dependencies
+- Mounts on `agent/request`, coexists naturally with `dsh-llm-retry`
+
+## Installation
 
 ```shell
 dsh plugin --profile web add .
 ```
 
-安装后 `dsh --profile web --dump-config` 应能看到插件行：
+After installing, `dsh --profile web --dump-config` should show the plugin entry:
 
 ```yaml
 - id: rate-limiter
@@ -20,9 +31,9 @@ dsh plugin --profile web add .
     providers: {}
 ```
 
-## 配置
+## Configuration
 
-在 profile 的 `cordis.patch.yml`（或本插件 `cordis.patch.yml`）中按 provider 配置令牌桶：
+Configure the token bucket per provider in the profile's `cordis.patch.yml` (or this plugin's `cordis.patch.yml`):
 
 ```yaml
 - id: rate-limiter
@@ -30,44 +41,48 @@ dsh plugin --profile web add .
     enabled: true
     providers:
       nvidia:
-        rate: 2          # token/秒（长期平均 QPS）
-        burst: 5         # 桶容量（允许的突发请求数）
+        rate: 2          # tokens/second (long-term average QPS)
+        burst: 5         # bucket capacity (allowed burst requests)
       oc-zen:
         rate: 1
         burst: 3
 ```
 
-- `rate`：补充速率（token/秒），即长期平均请求速率。
-- `burst`：桶容量，允许的突发请求数。
-- **未列出的 provider 不限速**，请求原样放行（零侵入）。
-- `enabled: false` 可整体关闭插件。
+- `rate`: refill rate (tokens/second), i.e. the long-term average request rate.
+- `burst`: bucket capacity, the number of burst requests allowed.
+- **Providers not listed are not rate-limited**; requests pass through untouched (zero intrusion).
+- `enabled: false` disables the plugin entirely.
 
-## 工作原理
+## How It Works
 
-插件挂在 `agent/request` waterfall 上：先 `await next()` 拿到含 provider 的调用配置，再按 provider 做令牌桶检查，不足则延迟排队（等待期间响应取消信号，用户停止时立即中断），然后原样返回配置——不修改请求内容、不改路由、不吞错误，只控制"何时发出"。
+The plugin hooks onto the `agent/request` waterfall: it `await next()` first to obtain the call config (which carries the provider), then performs a per-provider token bucket check; when tokens are insufficient, it queues the request with a delay (interrupted immediately by the abort signal when the user stops), then returns the config unchanged — it never modifies request content, never changes routing, never swallows errors. It only controls *when* a request is issued.
 
-限速算法为手写令牌桶（预约式，并发安全），零第三方限速库依赖。
+The rate-limiting algorithm is a hand-written reservation-based token bucket (concurrency-safe), with zero third-party rate-limiting dependencies.
 
-## 与 dsh-llm-retry 的关系
+## Relationship with dsh-llm-retry
 
-| 插件 | 时机 | 行为 |
+| Plugin | Timing | Behavior |
 | --- | --- | --- |
-| `dsh-rate-limiter` | 请求发出前 | 超限延迟排队（预防 429） |
-| `dsh-llm-retry` | 请求失败后 | 指数退避重试（兜底） |
+| `dsh-rate-limiter` | Before the request is issued | Queue with a delay when over the limit (prevents 429s) |
+| `dsh-llm-retry` | After the request fails | Exponential backoff retry (safety net) |
 
-两者挂载点不同（`agent/request` vs `agent/request-error`），天然共存。
+They mount at different points (`agent/request` vs `agent/request-error`) and coexist naturally.
 
-## 卸载
+## Uninstall
 
 ```shell
 dsh plugin --profile web remove dsh-rate-limiter
 ```
 
-## 开发
+## Development
 
 ```shell
 npm install
 npm run typecheck   # tsc --noEmit
 npm run test        # vitest run
-npm run build       # esbuild 转译 lib/*.ts → lib/*.js
+npm run build       # esbuild transpiles lib/*.ts → lib/*.js
 ```
+
+## Acknowledgements
+
+Thanks to the [Linux.do](https://linux.do) community for support.
