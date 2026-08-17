@@ -1,0 +1,13 @@
+# dsh-rate-limiter bundle layer：安装后自动注册插件行。
+# 默认只启用插件、不限速任何 provider（零侵入）；按需在 profile 补丁层
+# 或本文件 providers 下添加 provider 配置，例如：
+#   providers:
+#     nvidia:
+#       rate: 2
+#       burst: 5
+- insert:
+    - id: rate-limiter
+      name: dsh-rate-limiter
+      config:
+        enabled: true
+        providers: {}
