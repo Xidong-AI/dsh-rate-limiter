@@ -1,7 +1,15 @@
 {
-  "name": "dsh-rate-limiter",
+  "name": "@xidong-ai/dsh-rate-limiter",
   "version": "0.1.0",
   "description": "DeepSeek Harness 主动限速插件：按 provider 令牌桶限速，超限延迟排队而非失败",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Xidong-AI/dsh-rate-limiter.git"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/index.d.ts",
@@ -12,7 +20,8 @@
   "files": [
     "lib",
     "cordis.patch.yml",
-    "README.md"
+    "README.md",
+    "README.zh.md"
   ],
   "engines": {
     "node": ">=22"
@@ -20,7 +29,8 @@
   "scripts": {
     "build": "esbuild lib/index.ts lib/limiter.ts lib/config.ts --format=esm --platform=node --target=node22 --outdir=lib",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "prepack": "npm run build"
   },
   "dependencies": {
     "@deepseek-ai/schemastery": "^3.18.1"

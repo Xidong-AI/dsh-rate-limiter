@@ -17,6 +17,20 @@ DeepSeek Harness（`dsh`）的**主动限速**插件：在模型请求发出**�
 
 ## 安装
 
+从 npm 安装：
+
+```shell
+dsh plugin --profile web add @Xidong-AI/dsh-rate-limiter
+```
+
+或直接从 GitHub 安装：
+
+```shell
+dsh plugin --profile web add github:Xidong-AI/dsh-rate-limiter
+```
+
+本地开发时直接添加当前目录：
+
 ```shell
 dsh plugin --profile web add .
 ```
@@ -25,7 +39,7 @@ dsh plugin --profile web add .
 
 ```yaml
 - id: rate-limiter
-  name: dsh-rate-limiter
+  name: @xidong-ai/dsh-rate-limiter
   config:
     enabled: true
     providers: {}
@@ -71,7 +85,7 @@ dsh plugin --profile web add .
 ## 卸载
 
 ```shell
-dsh plugin --profile web remove dsh-rate-limiter
+dsh plugin --profile web remove @xidong-ai/dsh-rate-limiter
 ```
 
 ## 开发

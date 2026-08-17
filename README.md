@@ -17,6 +17,20 @@ It complements the official `dsh-llm-retry` (exponential backoff after failure):
 
 ## Installation
 
+Install from npm:
+
+```shell
+dsh plugin --profile web add @Xidong-AI/dsh-rate-limiter
+```
+
+Or install directly from GitHub:
+
+```shell
+dsh plugin --profile web add github:Xidong-AI/dsh-rate-limiter
+```
+
+For local development, add the checkout directly:
+
 ```shell
 dsh plugin --profile web add .
 ```
@@ -25,7 +39,7 @@ After installing, `dsh --profile web --dump-config` should show the plugin entry
 
 ```yaml
 - id: rate-limiter
-  name: dsh-rate-limiter
+  name: @xidong-ai/dsh-rate-limiter
   config:
     enabled: true
     providers: {}
@@ -71,7 +85,7 @@ They mount at different points (`agent/request` vs `agent/request-error`) and co
 ## Uninstall
 
 ```shell
-dsh plugin --profile web remove dsh-rate-limiter
+dsh plugin --profile web remove @xidong-ai/dsh-rate-limiter
 ```
 
 ## Development

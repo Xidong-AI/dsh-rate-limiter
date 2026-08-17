@@ -16,7 +16,7 @@
 #       burst: 5
 - insert:
     - id: rate-limiter
-      name: dsh-rate-limiter
+      name: "@xidong-ai/dsh-rate-limiter"
       config:
         enabled: true
         providers: {}
