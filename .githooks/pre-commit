@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+# pre-commit 钩子：对暂存文件执行 autocorrect --lint 排版检查
+# 启用：git config core.hooksPath .githooks
+# 可绕过：git commit --no-verify（远程 CI 门禁不可绕过）
+
+# 未安装 autocorrect 时跳过
+if ! command -v autocorrect > /dev/null 2>&1; then
+  exit 0
+fi
+
+# 暂存文件（新增、修改、复制和重命名，排除删除；尊重 .autocorrectignore）
+# simp: 逐文件检查便于定位错误；autocorrect 自动跳过二进制与不支持的类型。
+staged="$(git diff --cached --name-only --diff-filter=ACMR)"
+[ -z "$staged" ] && exit 0
+
+failed=0
+while IFS= read -r file; do
+  [ -f "$file" ] || continue
+  autocorrect --lint "$file" || failed=1
+done <<< "$staged"
+
+if [ "$failed" -ne 0 ]; then
+  echo "错误：暂存文件排版不符合 AutoCorrect 规则"
+  echo "提示：运行 autocorrect --fix <文件> 或手动调整后重新 git add"
+  exit 1
+fi
+exit 0

@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+# commit-msg 钩子：检查提交信息（语法 + 排版）
+# 1. 语法检查：scripts/check-grammar.mjs（基于 git-commit-regulation 规范）
+# 2. 排版检查：autocorrect --lint（汉字与英文、数字、符号间空格）
+# 启用：git config core.hooksPath .githooks
+# 可绕过：git commit --no-verify（远程 CI 门禁不可绕过）
+
+# 当前钩子所在目录 | Current Hook Directory
+HOOK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# 1. 语法检查（透传退出码）
+node "$HOOK_DIR/../scripts/check-grammar.mjs" --file "$1" || exit $?
+
+# 2. 排版检查：过滤 git 注释行后交给 autocorrect --lint --stdin
+#    未安装 autocorrect 时跳过（语法检查仍生效）
+if command -v autocorrect > /dev/null 2>&1; then
+  grep -v '^#' "$1" | autocorrect --lint --stdin || {
+    echo "错误：提交信息排版不符合 AutoCorrect 规则（汉字与英文、数字、符号间应留空格）"
+    echo "提示：运行 autocorrect --fix --stdin 或手动调整后重试"
+    exit 1
+  }
+fi
+exit 0
