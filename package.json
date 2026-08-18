@@ -45,6 +45,40 @@
     "typescript": "^5",
     "vitest": "^3"
   },
+  "dshWorkshop": {
+    "schema": "omdsh-workshop-package/v1",
+    "type": "plugin",
+    "integration": {
+      "protocol": "harness-cordis",
+      "artifact": "cordis.patch.yml"
+    },
+    "install": {
+      "mode": "guided",
+      "adapter": "third-party",
+      "failurePolicy": "manual",
+      "touchesCurrentBeforeActivation": false
+    },
+    "lifecycle": {
+      "activation": "restart-profile",
+      "dispose": "supported"
+    },
+    "permissions": [],
+    "compatibility": {
+      "dshVersions": ["0.1.0-rc.7"]
+    },
+    "capability": {
+      "id": "rate-limiter",
+      "kind": "service",
+      "invocation": "agent/request",
+      "expected": "per-provider token-bucket delay before request dispatch"
+    },
+    "evidence": {
+      "install": null,
+      "failureIsolation": null,
+      "hotReload": null,
+      "remove": null
+    }
+  },
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
