@@ -6,6 +6,7 @@ import type { LlmCallConfig } from "@deepseek-ai/dsh-llm";
 // Load dsh-agent's module augmentation of Cordis Events (compile-time types)
 // so the "agent/request" mount point gets precise payload/next signatures.
 import type {} from "@deepseek-ai/dsh-agent";
+import { installSettingsSection, settingsNamespace } from "@deepseek-ai/dsh-settings";
 import { Config } from "./config.js";
 import { RateLimiter } from "./limiter.js";
 import type { BucketOptions } from "./limiter.js";
@@ -57,6 +58,19 @@ export function resolveConfig(
  * never change routing, never swallow errors.
  */
 export function apply(ctx: Context, config: unknown = {}): void {
+  // 注册 settings namespace，使网页 GUI 能显示本插件的配置表单。
+  // DSH rc.7+ 要求插件主动注册才能渲染表单（settings.describe 按 namespace 分发）。
+  //
+  // Register settings namespace so the web GUI renders the plugin config form.
+  // DSH rc.7+ requires explicit registration (settings.describe dispatches by ns).
+  installSettingsSection(
+    ctx,
+    settingsNamespace("rate-limiter"),
+    Config,
+    Config(config as Record<string, unknown>),
+    { setSource: () => {}, onChange: () => {} },
+  );
+
   const { enabled, providers } = resolveConfig(config);
   if (!enabled) return;
   const limiter = new RateLimiter(providers);
