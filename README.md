@@ -57,11 +57,11 @@ Configure the token bucket per provider in the profile's `cordis.patch.yml` (or 
     enabled: true
     providers:
       nvidia:
-        rate: 2          # tokens/second (long-term average QPS)
-        burst: 5         # bucket capacity (allowed burst requests)
-      oc-zen:
-        rate: 1
-        burst: 3
+        rate: 0.5        # tokens/second (long-term average QPS)
+        burst: 1         # bucket capacity (allowed burst requests)
+      sensenova:
+        rate: 0.02778
+        burst: 1
 ```
 
 - `rate`: refill rate (tokens/second), i.e. the long-term average request rate.

@@ -100,12 +100,12 @@ describe("RateLimiter", () => {
     vi.useRealTimers();
   });
 
-  it("未配置的 provider 立即放行", async () => {
+  it("未配置的供应商立即放行", async () => {
     const limiter = new RateLimiter({});
     await expect(limiter.wait("unknown")).resolves.toBe(false);
   });
 
-  it("配置的 provider 首次立即放行，超限后等待", async () => {
+  it("配置的供应商首次立即放行，超限后等待", async () => {
     const limiter = new RateLimiter({ p: { rate: 1, burst: 1 } });
     await expect(limiter.wait("p")).resolves.toBe(false);
     const waiting = limiter.wait("p");

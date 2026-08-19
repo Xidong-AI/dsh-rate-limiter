@@ -1,5 +1,5 @@
 /**
- * 主动限速核心逻辑：按 provider 的令牌桶（token bucket）。
+ * 主动限速核心逻辑：按供应商的令牌桶（token bucket）。
  * 纯函数模块，不依赖 Cordis/ctx，可独立单元测试。
  *
  * Core rate-limiting logic: a token bucket per provider.
@@ -8,7 +8,7 @@
 
 export interface BucketOptions {
   /**
-   * 补充速率（token/秒），即长期平均 QPS。
+   * 补充速率（词元每秒），即长期平均 QPS。
    *
    * Refill rate (tokens/second), i.e. the long-term average QPS.
    */
@@ -107,8 +107,8 @@ export function cancellableDelay(delayMs: number, signal?: AbortSignal): Promise
 }
 
 /**
- * 按 provider 管理令牌桶的限速器。
- * 未配置的 provider 原样放行（零侵入）。
+ * 按供应商管理令牌桶的限速器。
+ * 未配置的供应商原样放行（零侵入）。
  *
  * A rate limiter managing one token bucket per provider.
  * Unconfigured providers pass through untouched (zero intrusion).

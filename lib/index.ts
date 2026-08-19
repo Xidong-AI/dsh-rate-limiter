@@ -17,7 +17,7 @@ export const name = "rate-limiter";
 
 /**
  * 主动限速插件：在 agent/request waterfall 中，先委托 next() 拿到含
- * provider 的调用配置，再按 provider 限速（不足则延迟排队而非失败），
+ * 供应商的调用配置，再按供应商限速（不足则延迟排队而非失败），
  * 然后原样返回配置——不修改请求内容、不改路由、不吞错误。
  *
  * Proactive rate-limiter plugin: on the agent/request waterfall, delegate to
@@ -106,7 +106,7 @@ export function apply(ctx: Context, config: unknown = {}): void {
   });
 
   // 限速器可重建：配置变更（settings user layer 提交）时经 bridge.onChange
-  // 重建。enabled=false 不注册 listener（零侵入）；未配置的 provider 原样放行。
+  // 重建。enabled=false 不注册 listener（零侵入）；未配置的供应商原样放行。
   //
   // The limiter is rebuildable: on config changes (settings user layer commits)
   // it is rebuilt via bridge.onChange. enabled=false registers no listener (zero

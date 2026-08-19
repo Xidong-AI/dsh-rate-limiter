@@ -1,19 +1,19 @@
 # dsh-rate-limiter bundle layer：安装后自动注册插件行。
-# 默认只启用插件、不限速任何 provider（零侵入）；按需在 profile 补丁层
-# 或本文件 providers 下添加 provider 配置，例如：
+# 默认只启用插件、不限速任何上游供应（零侵入）；按需在 profile 补丁层
+# 或本文件 providers 下添加供应商配置，例如：
 #   providers:
-#     nvidia:
-#       rate: 2
-#       burst: 5
+#     sensenova:
+#       rate: 0.02778
+#       burst: 1
 #
 # dsh-rate-limiter bundle layer: registers the plugin entry on install.
 # By default it only enables the plugin and rate-limits no provider (zero
 # intrusion); add per-provider config in the profile patch layer or under
 # `providers` below, e.g.:
 #   providers:
-#     nvidia:
-#       rate: 2
-#       burst: 5
+#     sensenova:
+#       rate: 0.02778
+#       burst: 1
 - insert:
     - id: rate-limiter
       name: "@xidong-ai/dsh-rate-limiter"
