@@ -1,4 +1,5 @@
 import z from "@deepseek-ai/schemastery";
+import type { BucketOptions } from "./limiter.js";
 
 /** 单个 provider 的令牌桶参数 */
 export interface BucketConfig {
@@ -54,3 +55,37 @@ export const Config = z.object({
     providers: "Provider 限速配置",
   },
 });
+
+/**
+ * 解析并校验插件配置（Cordis 已按 Config schema 校验，此处补齐默认值）。
+ * 供网关与限速器读取实时合成配置。
+ *
+ * Parse and validate plugin config (Cordis already validates against the
+ * Config schema; here we just fill in the defaults). Consumed by the gateway
+ * and the limiter to read the live composed config.
+ */
+export function resolveConfig(
+  config: unknown = {},
+): { enabled: boolean; providers: Record<string, BucketOptions> } {
+  const raw = (config ?? {}) as Record<string, unknown>;
+  const providers: Record<string, BucketOptions> = {};
+  const providersRaw = raw.providers;
+  if (providersRaw !== undefined && providersRaw !== null) {
+    if (typeof providersRaw !== "object") {
+      throw new Error("rate-limiter: providers 必须为对象");
+    }
+    for (const [provider, value] of Object.entries(providersRaw as Record<string, unknown>)) {
+      const options = (value ?? {}) as Record<string, unknown>;
+      const rate = options.rate;
+      const burst = options.burst;
+      if (typeof rate !== "number" || !Number.isFinite(rate) || rate <= 0) {
+        throw new Error(`rate-limiter: provider "${provider}" 的 rate 必须为正数`);
+      }
+      if (typeof burst !== "number" || !Number.isInteger(burst) || burst < 1) {
+        throw new Error(`rate-limiter: provider "${provider}" 的 burst 必须为正整数`);
+      }
+      providers[provider] = { rate, burst };
+    }
+  }
+  return { enabled: raw.enabled !== false, providers };
+}
