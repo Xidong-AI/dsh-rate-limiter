@@ -1,6 +1,6 @@
 {
   "name": "@xidong-ai/dsh-rate-limiter",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "DeepSeek Harness 主动限速插件：按供应商令牌桶限速，超限延迟排队而非失败",
   "license": "MIT",
   "repository": {
@@ -42,7 +42,6 @@
   },
   "peerDependencies": {
     "@deepseek-ai/dsh-client-runtime": "^0.1.0-rc.7 || ^0.1.1-rc.1",
-    "@deepseek-ai/dsh-client-schema-form": "^0.1.0-rc.7",
     "@deepseek-ai/dsh-client-ui-settings-plugins": "^0.1.0-rc.7 || ^0.1.1-rc.1",
     "@deepseek-ai/dsh-settings": "^0.1.0-rc.7 || ^0.1.1-rc.1",
     "@deepseek-ai/dsh-typert-protocol": "^0.1.0-rc.7 || ^0.1.1-rc.1",
