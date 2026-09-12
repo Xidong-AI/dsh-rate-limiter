@@ -1,24 +1,35 @@
-name: publish
+name: release
 
-# 打 v* 标签时自动构建并发布到 npm（tag 为版本唯一来源）。
+# 触发与流程：
+#  - PR 到 master：跑检查（门禁，阻挡不合规提交）
+#  - push 到 master：跑检查，随后若 package.json 版本尚未发布到 npm，
+#    自动创建 v<version> 标签并发布（版本已存在则跳过——幂等，可安全重跑）。
 # 鉴权使用 npm Trusted Publishing（OIDC），无需 NPM_TOKEN：
 # 1. 先手动发布首个版本（npm publish --access public）
 # 2. 在 npmjs.com 该包页面配置 Trusted Publisher：
-#    Provider: GitHub Actions，Repository: Xidong-AI/dsh-rate-limiter，
+#    Provider: GitHub Actions, Repository: Xidong-AI/dsh-rate-limiter,
 #    Workflow: release.yml，Environment: 留空
 # 3. 仓库必须公开；Node >= 22.14 自带 npm >= 11.5.1 以支持 provenance。
 
 on:
+  pull_request:
+    branches:
+      - master
   push:
-    tags:
-      - 'v*'
+    branches:
+      - master
 
+# 默认最小权限；发布 job 单独提升。
 permissions:
   contents: read
-  id-token: write # OIDC / trusted publishing 必需
+
+# 同一 ref 上串行执行，避免并发重复发布。
+concurrency:
+  group: release-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
-  publish:
+  check:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -27,17 +38,6 @@ jobs:
         with:
           node-version: 24
           cache: npm
-
-      # 校验 tag 与 package.json 版本一致，防止错发
-      - name: 校验 tag 与 package.json 版本一致
-        run: |
-          TAG="${GITHUB_REF#refs/tags/}"
-          VERSION="${TAG#v}"
-          PACKAGE_VERSION="$(node -p "require('./package.json').version")"
-          if [ "$VERSION" != "$PACKAGE_VERSION" ]; then
-            echo "::error::标签 $TAG 与 package.json 版本 $PACKAGE_VERSION 不一致；请先运行 npm version <版本> 并推送对应标签"
-            exit 1
-          fi
 
       - run: npm ci
 
@@ -53,6 +53,50 @@ jobs:
       - name: 检查发布内容
         run: npm pack --dry-run
 
+  publish:
+    needs: check
+    # 仅 master push 触发发布；PR 只跑检查。
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # 创建并推送 v<version> 标签
+      id-token: write # OIDC / trusted publishing 必需
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+
+      # 版本以 package.json 为准；npm 上已存在同版本则跳过（幂等，可重跑）。
+      - name: 解析版本并检测发布状态
+        id: version
+        run: |
+          VERSION="$(node -p "require('./package.json').version")"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          if npm view "@xidong-ai/dsh-rate-limiter@$VERSION" version >/dev/null 2>&1; then
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            echo "版本 $VERSION 已存在于 npm，跳过发布"
+          else
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+            echo "版本 $VERSION 尚未发布，将发布"
+          fi
+
+      - name: 创建并推送版本标签
+        if: steps.version.outputs.publish == 'true'
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          if git ls-remote --exit-code --tags origin "refs/tags/v$VERSION" >/dev/null 2>&1; then
+            echo "标签 v$VERSION 已存在，跳过创建"
+          else
+            git tag "v$VERSION"
+            git push origin "v$VERSION"
+          fi
+
       # trusted publishing 下不设置 registry-url，也不设置 NODE_AUTH_TOKEN
       - name: 发布到 npm
+        if: steps.version.outputs.publish == 'true'
         run: npm publish --provenance --access public
