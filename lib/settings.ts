@@ -117,38 +117,53 @@ export interface RateLimiterSettingsBridge {
 }
 
 /**
- * 安装 `rate-limiter` settings namespace 并接线实时 source。
+ * 安装 `rate-limiter` settings 并接线实时 source。
  *
- * 完全镜像 dsh `agent-default-model` 模式（dsh-settings `installSettingsSection`
- * 契约）：注册挂在条件 `ctx.inject(['settings'], ...)` 子注入上，因此没有
- * settings 服务时 source 保持 entry 配置。`source` 在挂载时切换为 settings
- * scope 的实时解析值；`onChange` 在 attach、提交变更、detach 时触发。
+ * 该桥对宿主的 settings 服务做**运行时探测**（feature-detect），同时兼容新旧
+ * 两代 API，不依赖任何版本字符串：
  *
- * 多 fiber 去重（qc1 W-5）：host 会合成多个本插件 fiber，每个实例都会执行本
- * 函数——但 `Settings.register` 对重复 namespace 会响亮失败
- * （`settings namespace "rate-limiter" is already registered`）。register 调用
- * 位于条件注入子体内，重复错误在那里异步浮现（外层 try/catch 看不到），故在
- * 子体内包裹 register。被去重的实例记录（debug）并保留 entry-source 回退：其
- * `source` thunk 只会被成功注册的 setSource 钩子替换，因此已注册实例拥有实时
- * namespace。
+ *  - **旧 API（<= 0.1.x，`Settings.register` 时代）**：settings 服务提供
+ *    `register(ns, Config, { base })` → scope，scope 有 `get()` / `watch()`。
+ *    沿用原有 `agent-default-model` source-thunk 模式：注册 namespace，
+ *    `source` 读 scope 实时解析值，`watch` 触发 onChange（多 fiber 去重逻辑
+ *    保留：register 对重复 namespace 响亮失败，被去重实例回退 entry-source）。
  *
- * Install the `rate-limiter` settings namespace and wire the live source.
+ *  - **新 API（0.2.0-rc.2，`SettingsForms` 时代）**：`register` / `scope.get` /
+ *    `scope.watch` 全部移除。namespace 改由 cordis Loader 的 config row 承载
+ *    （`entry.options.id === "rate-limiter"`），实时合成值通过
+ *    `settings.describe()` 读取（找 `ns === "rate-limiter"` 行的 `.value`），
+ *    变更经 `settings/document-updated`（过滤本 namespace）与
+ *    `app-boot/config-reload` 事件通知。写路径不变（gateway.ts 的
+ *    `settings.mutate` 两代都在）。
  *
- * Mirrors the dsh `agent-default-model` pattern exactly (the dsh-settings
- * `installSettingsSection` contract): the registration rides a conditional
- * `ctx.inject(['settings'], ...)` child, so with no settings service the
- * source stays the entry config. `source` swaps to the settings scope's
- * resolved value while attached; `onChange` fires at attach, on committed
- * changes, and at detach.
+ * 两代都无 settings 服务时，条件 `ctx.inject(['settings'], ...)` 子注入不激活，
+ * `source` 恰好是 entry：与未装 settings 时行为一致。
  *
- * Multi-fiber dedupe (qc1 W-5): the host composes several rate-limiter fibers,
- * and this runs on EVERY instance — but `Settings.register` fails loud on a
- * duplicate namespace. The register call runs inside the conditional inject
- * child, so the duplicate error surfaces ASYNCHRONOUSLY there (an outer
- * try/catch cannot see it) — this child body wraps the register instead. A
- * deduped instance logs (debug) and keeps the entry-source fallback: its
- * `source` thunk is only ever swapped by a SUCCESSFUL registration's setSource
- * hook, so the ALREADY-REGISTERED instance owns the live namespace.
+ * Install the `rate-limiter` settings and wire the live source.
+ *
+ * The bridge **feature-detects** the host's settings service to support both
+ * API generations without consulting any version string:
+ *
+ *  - **Old API (<= 0.1.x, the `Settings.register` era)**: the settings service
+ *    provides `register(ns, Config, { base })` → scope, and the scope has
+ *    `get()` / `watch()`. Reuses the original `agent-default-model`
+ *    source-thunk pattern: register the namespace, read the scope's resolved
+ *    value from `source`, fire `onChange` from `watch` (multi-fiber dedupe is
+ *    preserved: register fails loud on a duplicate namespace and a deduped
+ *    instance falls back to the entry-source).
+ *
+ *  - **New API (0.2.0-rc.2, the `SettingsForms` era)**: `register` /
+ *    `scope.get` / `scope.watch` are all gone. The namespace is now carried by
+ *    the cordis Loader config row (`entry.options.id === "rate-limiter"`), the
+ *    live composed value is read via `settings.describe()` (find the row with
+ *    `ns === "rate-limiter"` and take its `.value`), and changes arrive over
+ *    the `settings/document-updated` event (filtered to this namespace) plus
+ *    `app-boot/config-reload`. The write path is unchanged (`settings.mutate`
+ *    in gateway.ts exists on both generations).
+ *
+ * With no settings service on either generation, the conditional
+ * `ctx.inject(['settings'], ...)` child never activates and `source` is exactly
+ * the entry: behavior identical to running without settings.
  */
 export function installRateLimiterSettings(
   ctx: Context,
@@ -160,10 +175,72 @@ export function installRateLimiterSettings(
     for (const listener of [...listeners]) listener();
   };
 
+  // 最小结构类型：只描述两代 settings 服务真正用到的成员；宿主按自身版本提供
+  // 其中一代，`register` 的有无即判别式。
+  //
+  // Minimal structural types for just the members actually used from either
+  // generation of the settings service; the host provides one of the two and
+  // the presence of `register` is the discriminator.
+  type SettingsDescriptor = {
+    ns: string;
+    value: unknown;
+  };
+  type SettingsService = {
+    register?: (
+      ns: string,
+      schema: unknown,
+      options?: { base?: unknown },
+    ) => { get(): unknown; watch(cb: () => void): unknown };
+    describe?: (options?: unknown) => SettingsDescriptor[];
+    on?: (event: string, cb: (...args: unknown[]) => void) => unknown;
+    effect?: (cb: () => unknown, label?: string) => unknown;
+  };
+
   ctx.inject(["settings"], (sctx) => {
-    let scope: ReturnType<typeof sctx.settings.register> | undefined;
+    const settings = (sctx as unknown as { settings?: SettingsService }).settings;
+    if (settings === undefined) return;
+
+    // ── 新 API（0.2.0-rc.2）：describe() + 事件驱动 ─────────────────────────
+    if (typeof settings.register !== "function") {
+      if (typeof settings.describe !== "function") {
+        // 既无 register 也无 describe：无法桥接，退回 entry。
+        ctx.logger("rate-limiter").debug(
+          "settings service exposes neither register nor describe — entry-source fallback",
+        );
+        return;
+      }
+      // source 读实时合成值：describe() 找本 namespace 行的 .value；找不到
+      // （namespace 尚未由 Loader 建立）时回退 entry。
+      source = () => {
+        try {
+          const rows = settings.describe!() ?? [];
+          const row = rows.find((r) => r?.ns === RATE_LIMITER_SETTINGS_NAMESPACE);
+          return row === undefined ? entry : row.value;
+        } catch {
+          return entry;
+        }
+      };
+      const refresh = () => {
+        if (isUnloading(ctx)) return;
+        notify();
+      };
+      // 变更事件：settings/document-updated(ns, revision) 过滤本 namespace；
+      // app-boot/config-reload 表示配置文档整体重载。两者都重读合成值并通知。
+      settings.on?.("settings/document-updated", (...args: unknown[]) => {
+        const ns = args[0];
+        if (ns !== RATE_LIMITER_SETTINGS_NAMESPACE) return;
+        refresh();
+      });
+      settings.on?.("app-boot/config-reload", refresh);
+      // 挂载时先通知一次，让消费方取到实时值。
+      notify();
+      return;
+    }
+
+    // ── 旧 API（<= 0.1.x）：register() + scope.get()/watch() ────────────────
+    let scope: { get(): unknown; watch(cb: () => void): unknown } | undefined;
     try {
-      scope = sctx.settings.register(RATE_LIMITER_SETTINGS_NAMESPACE, Config, {
+      scope = settings.register(RATE_LIMITER_SETTINGS_NAMESPACE, Config, {
         // entry 已由 cordis Loader 按 Config schema 校验，此处作为合成 base
         // 传入（`base` 期望 Partial<schema 输出>，raw entry 经边界强转）。
         //
@@ -189,7 +266,7 @@ export function installRateLimiterSettings(
     // resolved value while attached, and the detach disposer falls back to the
     // entry when the settings service goes away (skipped during unload).
     source = () => scope!.get();
-    sctx.effect(() => () => {
+    settings.effect?.(() => () => {
       if (isUnloading(ctx)) return;
       source = () => entry;
       notify();
