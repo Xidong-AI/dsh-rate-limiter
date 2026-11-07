@@ -239,6 +239,16 @@ export class RateLimiterConfigGateway extends TypertRemoteService {
         "rate-limiter: settings service is unavailable — configuration cannot be written",
       );
     }
+    // 0.1.7+ 的 `mutate(ns, ...)` 中 `ns` 语义是 profile entry id（本仓库
+    // `cordis.patch.yml` 的 entry id 恰为 `rate-limiter`，与常量值相等），
+    // 故沿用同一常量；`providers` 顶层字段已标 `.volatile()`，落在其下的
+    // `path: ['providers', k]` 不会被 `isVolatilePath` 拒绝。
+    //
+    // In 0.1.7+ `mutate(ns, ...)`, `ns` denotes the profile entry id (this
+    // repo's cordis.patch.yml entry id is exactly `rate-limiter`, equal to the
+    // constant), so the same constant still applies. The top-level `providers`
+    // field is marked `.volatile()`, so `path: ['providers', k]` below it is
+    // not rejected by `isVolatilePath`.
     await settings.mutate(RATE_LIMITER_SETTINGS_NAMESPACE, buildMutateOps(patch));
     return { config: resolveConfig(this.bridge.source()) };
   }

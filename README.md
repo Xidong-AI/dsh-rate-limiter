@@ -84,6 +84,13 @@ The rate-limiting algorithm is a hand-written reservation-based token bucket (co
 
 They mount at different points (`agent/request` vs `agent/request-error`) and coexist naturally.
 
+## Compatibility
+
+Runtime feature detection lets one build run on both dsh 0.1.x and 0.2.x
+hosts. On 0.2.x the settings form now saves without the
+`has no volatile fields` error, and the card is registered on the bundle and
+plugin-row config seats. Available since 0.3.3.
+
 ## Uninstall
 
 ```shell

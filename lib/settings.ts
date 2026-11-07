@@ -2,11 +2,12 @@
  * host 侧 `rate-limiter` settings namespace + 实时 source 桥接。
  *
  * 插件行的配置（传给插件 `apply` 的 `entry`）是 `rate-limiter` settings
- * namespace 的合成 BASE：当 dsh settings 服务挂载时，其 user layer 叠加其上
- * （schema 默认值 → base → user layer），运行时通过桥的 `source` thunk 读取
- * 实时合成值——与 dsh 的 `agent-default-model` 相同的 source-thunk 模式。
- * 没有 settings 服务时，条件 `ctx.inject(['settings'], ...)` 子注入不激活，
- * source 恰好就是 entry：行为与今天完全一致。
+ * namespace 的合成 BASE：settings user layer 叠加其上（schema 默认值 → base →
+ * user layer）。读取方式按宿主动态选择：旧 API（有 `register`）经 scope 的
+ * `get()` 实时读值；新 API（0.1.7+/0.2）直接读 `entry` 上的 Volatile 引用
+ * （由 `resolveConfig` 解包），并监听配置热更新事件。没有 settings 服务时，
+ * 条件 `ctx.inject(['settings'], ...)` 子注入不激活，source 恰好就是 entry：
+ * 行为与今天完全一致。
  *
  * 该 namespace 不加入当前上游 dsh 构建的 apiproxy 配置客户端边界
  * （`exposedNamespaces()` 只并集 model-provider 与产品 namespace，上游没有
@@ -18,11 +19,12 @@
  * Host-side `rate-limiter` settings namespace + live source wiring.
  *
  * The plugin-row config (the `entry` passed to the plugin's `apply`) is the
- * composition BASE of the `rate-limiter` settings namespace: when a dsh
- * settings service is mounted, its user layer is layered on top (schema
- * defaults → base → user layer) and the runtime reads the live resolved value
- * through the bridge's `source` thunk — the same source-thunk pattern as dsh's
- * `agent-default-model`. Without a settings service the conditional
+ * composition BASE of the `rate-limiter` settings namespace: the settings user
+ * layer is layered on top (schema defaults → base → user layer). The read path
+ * is chosen at runtime: the legacy API (has `register`) reads live values via
+ * the scope's `get()`; the new API (0.1.7+/0.2) reads the Volatile references
+ * on `entry` directly (unwrapped by `resolveConfig`) and listens for hot-update
+ * events. Without a settings service the conditional
  * `ctx.inject(['settings'], ...)` child never activates and the source is
  * exactly the entry: behavior identical to today.
  *
@@ -117,38 +119,76 @@ export interface RateLimiterSettingsBridge {
 }
 
 /**
+ * 最小结构化的宿主 settings 服务视图。
+ *
+ * 两代宿主的服务形状不同：旧 API（0.1.6 及以前）有 `register`；新 API
+ * （0.1.7+/0.2）没有 `register`，但保留 `describe`。这里只声明运行时实际
+ * 触碰到的成员，避免依赖当前 devDependency（0.1.x）的类型定义。
+ *
+ * Minimal structural view of the host settings service. The two host
+ * generations differ: the legacy API (0.1.6 and earlier) has `register`; the
+ * new API (0.1.7+/0.2) has no `register` but keeps `describe`. Only the
+ * members actually touched at runtime are declared, so this does not depend on
+ * the current devDependency (0.1.x) type definitions.
+ */
+interface SettingsServiceLike {
+  register?: (
+    ns: SettingsNamespace,
+    schema: unknown,
+    options?: { base?: unknown },
+  ) => SettingsScopeLike;
+  describe?: (options?: unknown) => unknown[];
+}
+
+interface SettingsScopeLike {
+  get(): unknown;
+  watch(callback: () => void): () => void;
+}
+
+/** 只需要 `on` 的事件总线视图（事件名不在旧 Context 类型声明里）。 */
+interface EventBusLike {
+  on(event: string, listener: (...args: unknown[]) => void): () => void;
+}
+
+/**
  * 安装 `rate-limiter` settings namespace 并接线实时 source。
  *
- * 完全镜像 dsh `agent-default-model` 模式（dsh-settings `installSettingsSection`
- * 契约）：注册挂在条件 `ctx.inject(['settings'], ...)` 子注入上，因此没有
- * settings 服务时 source 保持 entry 配置。`source` 在挂载时切换为 settings
- * scope 的实时解析值；`onChange` 在 attach、提交变更、detach 时触发。
+ * 运行时特性探测区分两代宿主：
  *
- * 多 fiber 去重（qc1 W-5）：host 会合成多个本插件 fiber，每个实例都会执行本
- * 函数——但 `Settings.register` 对重复 namespace 会响亮失败
- * （`settings namespace "rate-limiter" is already registered`）。register 调用
- * 位于条件注入子体内，重复错误在那里异步浮现（外层 try/catch 看不到），故在
- * 子体内包裹 register。被去重的实例记录（debug）并保留 entry-source 回退：其
- * `source` thunk 只会被成功注册的 setSource 钩子替换，因此已注册实例拥有实时
- * namespace。
+ * - **旧 API**（`settings.register` 是函数）：保持原有注册 + `scope.get()`
+ *   实时读值 + `scope.watch` 变更通知；多 fiber 去重逻辑不变。
+ * - **新 API**（无 `register`、有 `describe`）：**不**用 `describe()` 找 row
+ *   （无 volatile 字段的 schema 会被 `volatileForm()` 静默跳过，读不到该
+ *   entry），也**不**依赖 `settings.on` / `settings.effect`。新宿主会把
+ *   volatile 字段以引用形式直接传给 `apply` 的 `config`，故 `source` 保持
+ *   `entry`（由 `resolveConfig` 逐字段解包 `{ get() }`）；配置热更新改由
+ *   Loader 的 `loader/volatile-update` 与 settings 的
+ *   `settings/document-updated` 事件通知，二者都挂在插件 fiber 的
+ *   `ctx.effect` 上，fiber 卸载时自动解绑。
+ *
+ * 没有 settings 服务时，条件 `ctx.inject(['settings'], ...)` 子注入不激活，
+ * source 恰好就是 entry：行为与今天完全一致。
  *
  * Install the `rate-limiter` settings namespace and wire the live source.
  *
- * Mirrors the dsh `agent-default-model` pattern exactly (the dsh-settings
- * `installSettingsSection` contract): the registration rides a conditional
- * `ctx.inject(['settings'], ...)` child, so with no settings service the
- * source stays the entry config. `source` swaps to the settings scope's
- * resolved value while attached; `onChange` fires at attach, on committed
- * changes, and at detach.
+ * Runtime feature detection distinguishes the two host generations:
  *
- * Multi-fiber dedupe (qc1 W-5): the host composes several rate-limiter fibers,
- * and this runs on EVERY instance — but `Settings.register` fails loud on a
- * duplicate namespace. The register call runs inside the conditional inject
- * child, so the duplicate error surfaces ASYNCHRONOUSLY there (an outer
- * try/catch cannot see it) — this child body wraps the register instead. A
- * deduped instance logs (debug) and keeps the entry-source fallback: its
- * `source` thunk is only ever swapped by a SUCCESSFUL registration's setSource
- * hook, so the ALREADY-REGISTERED instance owns the live namespace.
+ * - **Legacy API** (`settings.register` is a function): keep the existing
+ *   registration + live `scope.get()` read + `scope.watch` notifications, with
+ *   the same multi-fiber dedupe.
+ * - **New API** (no `register`, has `describe`): do NOT locate the row through
+ *   `describe()` (schemas without volatile fields are silently skipped by
+ *   `volatileForm()`, so the entry is unreadable there), and do NOT rely on
+ *   `settings.on` / `settings.effect`. The new host passes volatile fields as
+ *   references directly on the `config` handed to `apply`, so `source` stays
+ *   `entry` (resolved field-by-field by `resolveConfig`); hot updates arrive
+ *   through the Loader's `loader/volatile-update` and settings'
+ *   `settings/document-updated` events, both bound to the plugin fiber's
+ *   `ctx.effect` so they unbind on unload.
+ *
+ * Without a settings service the conditional `ctx.inject(['settings'], ...)`
+ * child never activates and the source is exactly the entry: behavior
+ * identical to today.
  */
 export function installRateLimiterSettings(
   ctx: Context,
@@ -161,44 +201,82 @@ export function installRateLimiterSettings(
   };
 
   ctx.inject(["settings"], (sctx) => {
-    let scope: ReturnType<typeof sctx.settings.register> | undefined;
-    try {
-      scope = sctx.settings.register(RATE_LIMITER_SETTINGS_NAMESPACE, Config, {
-        // entry 已由 cordis Loader 按 Config schema 校验，此处作为合成 base
-        // 传入（`base` 期望 Partial<schema 输出>，raw entry 经边界强转）。
-        //
-        // `entry` has already been validated by the cordis Loader against the
-        // Config schema; it is passed here as the composition base (`base`
-        // expects `Partial<schema output>`, so the raw entry is cast at the
-        // boundary).
-        base: entry as never,
-      });
-    } catch (error) {
-      if (!(error instanceof Error) || !error.message.includes("already registered")) {
-        throw error;
+    const settings = sctx.settings as unknown as SettingsServiceLike;
+    if (typeof settings.register === "function") {
+      let scope: SettingsScopeLike | undefined;
+      try {
+        scope = settings.register(RATE_LIMITER_SETTINGS_NAMESPACE, Config, {
+          // entry 已由 cordis Loader 按 Config schema 校验，此处作为合成 base
+          // 传入（`base` 期望 Partial<schema 输出>，raw entry 经边界强转）。
+          //
+          // `entry` has already been validated by the cordis Loader against the
+          // Config schema; it is passed here as the composition base (`base`
+          // expects `Partial<schema output>`, so the raw entry is cast at the
+          // boundary).
+          base: entry,
+        });
+      } catch (error) {
+        if (!(error instanceof Error) || !error.message.includes("already registered")) {
+          throw error;
+        }
+        ctx.logger("rate-limiter").debug(
+          "settings namespace already registered — entry-source fallback (multi-fiber dedupe)",
+        );
+        return;
       }
-      ctx.logger("rate-limiter").debug(
-        "settings namespace already registered — entry-source fallback (multi-fiber dedupe)",
-      );
+      // 镜像 installSettingsSection：挂载时 source thunk 读取 scope 的实时解析值，
+      // detach disposer 在 settings 服务消失时回退到 entry（卸载期间跳过）。
+      //
+      // Mirrors installSettingsSection: the source thunk reads the scope's live
+      // resolved value while attached, and the detach disposer falls back to the
+      // entry when the settings service goes away (skipped during unload).
+      source = () => scope!.get();
+      sctx.effect(() => () => {
+        if (isUnloading(ctx)) return;
+        source = () => entry;
+        notify();
+      });
+      notify();
+      scope.watch(() => {
+        if (isUnloading(ctx)) return;
+        notify();
+      });
       return;
     }
-    // 镜像 installSettingsSection：挂载时 source thunk 读取 scope 的实时解析值，
-    // detach disposer 在 settings 服务消失时回退到 entry（卸载期间跳过）。
-    //
-    // Mirrors installSettingsSection: the source thunk reads the scope's live
-    // resolved value while attached, and the detach disposer falls back to the
-    // entry when the settings service goes away (skipped during unload).
-    source = () => scope!.get();
-    sctx.effect(() => () => {
-      if (isUnloading(ctx)) return;
-      source = () => entry;
+
+    if (typeof settings.describe === "function") {
+      // 新 API：配置热更新的权威通知是 loader/volatile-update（Loader 在
+      // _commitVolatile 时 emit 到 owning fiber）与 settings/document-updated
+      // （write() 末尾 describe() 后 emit）。source 保持 entry：其字段是
+      // volatile 引用，由 resolveConfig 解包读取实时值。
+      //
+      // New API: the authoritative hot-update notifications are
+      // loader/volatile-update (emitted by the Loader's _commitVolatile to the
+      // owning fiber) and settings/document-updated (emitted after write()'s
+      // trailing describe()). The source stays the entry: its fields are
+      // volatile references, unpacked to live values by resolveConfig.
+      const events = ctx as unknown as EventBusLike;
+      ctx.effect(() => {
+        const offVolatile = events.on("loader/volatile-update", () => {
+          if (!isUnloading(ctx)) notify();
+        });
+        const offDocument = events.on("settings/document-updated", () => {
+          if (!isUnloading(ctx)) notify();
+        });
+        return () => {
+          offVolatile();
+          offDocument();
+        };
+      });
       notify();
-    });
-    notify();
-    scope.watch(() => {
-      if (isUnloading(ctx)) return;
-      notify();
-    });
+      return;
+    }
+
+    // 服务既无 register 也无 describe：未知宿主形状，保持 entry 回退。
+    // Neither register nor describe: unknown host shape, keep the entry fallback.
+    ctx.logger("rate-limiter").debug(
+      "settings service exposes neither register nor describe — entry-source fallback",
+    );
   });
 
   return {

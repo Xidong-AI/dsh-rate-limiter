@@ -88,10 +88,15 @@ interface CtxStubOptions {
 /** apply 所需的 ctx stub：只覆盖 client.js 实际触碰的接口。 */
 function createCtxStub(options: CtxStubOptions = {}) {
   const registered: unknown[] = [];
+  const components: unknown[] = [];
   const rpc = options.rpc ?? { call: async () => ({ ok: false, error: { message: "unexpected rpc" } }) };
   const ctx = {
     effect: (fn: () => unknown) => fn(),
-    locale: { register: () => undefined, bind: () => () => "" },
+    locale: {
+      register: () => undefined,
+      // 返回带命名空间前缀的可辨识文本，便于断言座位 label 已本地化。
+      bind: (ns: string) => (key: string) => `${ns}:${key}`,
+    },
     get: (name: string) => {
       if (name === "connection") return { api: options.api, rpc };
       if (name === "remote") return options.remote;
@@ -109,13 +114,14 @@ function createCtxStub(options: CtxStubOptions = {}) {
         let step = iterator.next();
         while (!step.done) step = iterator.next();
       },
-      register: (definition: unknown) => {
+      register: (definition: unknown, component?: unknown) => {
         registered.push(definition);
+        components.push(component);
         return () => undefined;
       },
     },
   };
-  return { ctx, registered };
+  return { ctx, registered, components };
 }
 
 /** 执行 apply 并从卡片注册定义里取回 controller（定义 inject 返回 { controller, ... }）。 */
@@ -147,12 +153,14 @@ describe("client bundle 的 createSnapshotStore 解析", () => {
       "@deepseek-ai/dsh-client-store": { createSnapshotStore: createSnapshotStoreMock },
     });
     const exports = loadRegistration().factory(require);
-    expect(exports.inject).toEqual(["slots", "locale", "connection"]);
+    expect(exports.inject).toEqual(
+      expect.arrayContaining(["slots", "locale", "connection"]),
+    );
 
     const { ctx, registered } = createCtxStub();
     exports.apply(ctx);
     expect(createSnapshotStoreMock).toHaveBeenCalledTimes(1);
-    expect(registered).toHaveLength(1);
+    expect(registered.length).toBeGreaterThanOrEqual(1);
     expect(calls).toContain("@deepseek-ai/dsh-client-store");
     expect(calls).not.toContain("@deepseek-ai/dsh-client-runtime/client");
   });
@@ -167,7 +175,7 @@ describe("client bundle 的 createSnapshotStore 解析", () => {
     const { ctx, registered } = createCtxStub();
     exports.apply(ctx);
     expect(createSnapshotStoreMock).toHaveBeenCalledTimes(1);
-    expect(registered).toHaveLength(1);
+    expect(registered.length).toBeGreaterThanOrEqual(1);
     // 先尝试新路径，miss 后回退旧路径。
     const storeIndex = calls.indexOf("@deepseek-ai/dsh-client-store");
     const fallbackIndex = calls.indexOf("@deepseek-ai/dsh-client-runtime/client");
@@ -277,5 +285,83 @@ describe("client bundle 的目录/视图数据通道", () => {
     const state = controller.store.getSnapshot();
     expect(state.status).toBe("error");
     expect(state.error).toContain("channel is unavailable");
+  });
+});
+
+/**
+ * 0.2.0 座位契约：客户端入口在 `inject` 中声明 remote 命名空间，并向宿主
+ * 注册 4 个座位（settings.plugin.item 仅作向下兼容），不注册官方专用的
+ * `plugins.item`。
+ */
+describe("client bundle 的 0.2 座位注册", () => {
+  interface SeatDefinition {
+    name: string;
+    key?: string;
+    id?: string;
+    order?: number;
+    label?: () => string;
+    locale?: string;
+  }
+
+  function applyWithSeats() {
+    const { require } = createRequire({
+      react: reactStub,
+      "@deepseek-ai/dsh-client-store": { createSnapshotStore },
+    });
+    const exports = loadRegistration().factory(require);
+    const stub = createCtxStub();
+    exports.apply(stub.ctx);
+    return {
+      exports,
+      seats: stub.registered as SeatDefinition[],
+      components: stub.components,
+    };
+  }
+
+  it("inject 声明 remote 及其命名空间", () => {
+    const { exports } = applyWithSeats();
+    expect(exports.inject).toEqual(
+      expect.arrayContaining(["remote", "remote.llm", "remote.settings"]),
+    );
+  });
+
+  it("座位集合含四个契约座位且不含 plugins.item", () => {
+    const { seats } = applyWithSeats();
+    const names = seats.map((seat) => seat.name);
+    expect(names).toEqual(
+      expect.arrayContaining([
+        "settings.plugin.item",
+        "plugins.bundle.config",
+        "plugins.row.config",
+        "settings.plugins.tab",
+      ]),
+    );
+    expect(names).not.toContain("plugins.item");
+    expect(seats).toHaveLength(4);
+  });
+
+  it("plugins.row.config 的 key 为包名#rowId", () => {
+    const { seats } = applyWithSeats();
+    const row = seats.find((seat) => seat.name === "plugins.row.config");
+    expect(row?.key).toBe("@xidong-ai/dsh-rate-limiter#rate-limiter");
+  });
+
+  it("settings.plugins.tab 的 label 返回本地化文本而非字面量 nav", () => {
+    const { seats } = applyWithSeats();
+    const tab = seats.find((seat) => seat.name === "settings.plugins.tab");
+    expect(tab?.id).toBe("rate-limiter");
+    expect(tab?.order).toBe(60);
+    expect(typeof tab?.label).toBe("function");
+    const label = tab?.label?.();
+    expect(label).not.toBe("nav");
+    expect(label).toBe("settings.rate-limiter:title");
+  });
+
+  it("四个座位注册时都传了可渲染组件", () => {
+    const { components } = applyWithSeats();
+    expect(components).toHaveLength(4);
+    for (const component of components) {
+      expect(typeof component).toBe("function");
+    }
   });
 });
