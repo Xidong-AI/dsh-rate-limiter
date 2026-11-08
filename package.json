@@ -63,7 +63,7 @@
     "@types/node": "^22",
     "esbuild": "^0.28.2",
     "typescript": "^5",
-    "vitest": "^3"
+    "vitest": "^5.1.0"
   },
   "dshWorkshop": {
     "schema": "omdsh-workshop-package/v1",
