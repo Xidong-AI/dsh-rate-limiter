@@ -84,6 +84,12 @@ dsh plugin --profile web add .
 
 两者挂载点不同（`agent/request` vs `agent/request-error`），天然共存。
 
+## 兼容性
+
+运行时特性探测使同一份构建可同时运行在 dsh 0.1.x 与 0.2.x 宿主上。0.2.x
+下保存设置不再报 `has no volatile fields`，卡片同时注册在 bundle 级与插件行
+级配置座位。0.3.3 起支持。
+
 ## 卸载
 
 ```shell
