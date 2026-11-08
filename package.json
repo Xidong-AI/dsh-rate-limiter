@@ -29,7 +29,8 @@
     "README.zh.md"
   ],
   "engines": {
-    "node": ">=22"
+    "node": ">=22",
+    "dsh": ">=0.1.0-rc.7 <0.3.0"
   },
   "scripts": {
     "build": "esbuild lib/index.ts lib/limiter.ts lib/config.ts lib/settings.ts lib/gateway.ts --format=esm --platform=node --target=node22 --outdir=lib",
@@ -89,7 +90,8 @@
         "0.1.1-rc.1",
         "0.1.2-rc.1",
         "0.1.5-rc.1",
-        "0.2.0-rc.2"
+        "0.2.0-rc.2",
+        "0.2.1-rc.5"
       ]
     },
     "capability": {
